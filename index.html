@@ -3,22 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Go Postal - Suivi de Livraison</title>
+    <title>Go Postal - Suivi</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    
-    <!-- Firebase -->
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
     
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
         body { 
-            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            font-family: system-ui, -apple-system, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
         }
         
-        .animated-bg {
+        .bg-animated {
             background: linear-gradient(-45deg, #ee7752, #e73c7e, #23a6d5, #23d5ab);
             background-size: 400% 400%;
             animation: gradient 15s ease infinite;
@@ -30,81 +27,26 @@
             100% { background-position: 0% 50%; }
         }
         
-        @keyframes fadeInUp {
-            from {
-                opacity: 0;
-                transform: translateY(30px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
+        .fade-in { animation: fadeIn 0.5s ease-out; }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
         }
+        
+        .pulse-icon { animation: pulse 2s infinite; }
         
         @keyframes pulse {
             0%, 100% { transform: scale(1); }
             50% { transform: scale(1.05); }
         }
-        
-        .fade-in-up {
-            animation: fadeInUp 0.6s ease-out;
-        }
-        
-        .logo-container {
-            background: white;
-            padding: 20px;
-            border-radius: 20px;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
-            display: inline-block;
-            margin-bottom: 30px;
-        }
-        
-        .tracking-card {
-            backdrop-filter: blur(10px);
-            background: rgba(255, 255, 255, 0.95);
-            border: 1px solid rgba(255, 255, 255, 0.3);
-        }
-        
-        .status-icon {
-            transition: all 0.3s ease;
-        }
-        
-        .status-icon.active {
-            animation: pulse 2s infinite;
-        }
-        
-        .glass-effect {
-            backdrop-filter: blur(10px);
-            background: rgba(255, 255, 255, 0.1);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-        }
-        
-        input:focus {
-            outline: none;
-            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.3);
-        }
-        
-        .btn-track {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            transition: all 0.3s ease;
-        }
-        
-        .btn-track:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 25px rgba(102, 126, 234, 0.4);
-        }
-        
-        .logo-image {
-            width: 150px;
-            height: auto;
-        }
     </style>
 </head>
-<body class="animated-bg">
+<body class="bg-animated">
     <div id="app"></div>
 
     <script>
-        // Configuration Firebase
+        // config firebase
         const firebaseConfig = {
             apiKey: "AIzaSyDxvLw4S3npQIUYS72uk6xtcJ-bImGPiQI",
             authDomain: "go-postal-96c85.firebaseapp.com",
@@ -116,306 +58,259 @@
         };
 
         firebase.initializeApp(firebaseConfig);
-        const database = firebase.database();
+        const db = firebase.database();
 
-        // Logo Go Postal en SVG
-        const goPostalLogo = `
-            <svg viewBox="0 0 300 300" class="logo-image">
-                <!-- C rouge -->
-                <path d="M 40 150 A 60 60 0 1 1 40 149.9" fill="none" stroke="#E63946" stroke-width="30"/>
-                <!-- G rouge -->
-                <rect x="130" y="170" width="50" height="30" fill="#E63946"/>
-                <!-- P bleu -->
-                <path d="M 160 90 A 50 50 0 1 1 160 89.9" fill="none" stroke="#457B9D" stroke-width="25"/>
-                <text x="50" y="280" font-size="60" font-weight="bold" fill="#2B2D42" font-family="Arial">Postal</text>
-            </svg>
-        `;
+        let trackNum = '';
+        let order = null;
+        let isLoading = false;
+        let listener = null;
 
-        class TrackingApp {
-            constructor() {
-                this.trackingNumber = '';
-                this.currentOrder = null;
-                this.loading = false;
-                this.orderListener = null;
-                
-                this.statuses = [
-                    { key: 'received', label: 'Commande reçue', icon: '📋', color: '#6366f1', bgColor: '#eef2ff' },
-                    { key: 'preparing', label: 'En préparation', icon: '📦', color: '#3b82f6', bgColor: '#dbeafe' },
-                    { key: 'delivering', label: 'En cours de livraison', icon: '🚚', color: '#f59e0b', bgColor: '#fef3c7' },
-                    { key: 'delivered', label: 'Livrée', icon: '✅', color: '#10b981', bgColor: '#d1fae5' }
-                ];
-                
-                this.render();
+        const steps = [
+            { id: 'received', name: 'Commande reçue', emoji: '📋', color: '#6366f1' },
+            { id: 'preparing', name: 'En préparation', emoji: '📦', color: '#3b82f6' },
+            { id: 'delivering', name: 'En livraison', emoji: '🚚', color: '#f59e0b' },
+            { id: 'delivered', name: 'Livrée', emoji: '✅', color: '#10b981' }
+        ];
+
+        function showMsg(msg, type) {
+            const colors = {
+                ok: 'bg-green-500',
+                err: 'bg-red-500',
+                warn: 'bg-orange-500'
+            };
+            
+            const div = document.createElement('div');
+            div.className = `fixed top-4 right-4 ${colors[type]} text-white px-6 py-3 rounded-lg shadow-lg z-50 fade-in`;
+            div.textContent = msg;
+            document.body.appendChild(div);
+            
+            setTimeout(() => div.remove(), 3000);
+        }
+
+        async function search() {
+            const id = trackNum.trim();
+            
+            if (!id) {
+                showMsg('⚠️ Entre un numéro', 'warn');
+                return;
             }
 
-            async trackOrder() {
-                const orderId = this.trackingNumber.trim();
+            isLoading = true;
+            render();
+
+            try {
+                const snap = await db.ref('orders/' + id).once('value');
+                const data = snap.val();
                 
-                if (!orderId) {
-                    this.showNotification('⚠️ Veuillez entrer un numéro de commande', 'warning');
-                    return;
-                }
-
-                this.loading = true;
-                this.render();
-
-                try {
-                    const snapshot = await database.ref('orders/' + orderId).once('value');
-                    const order = snapshot.val();
+                if (data) {
+                    order = data;
+                    showMsg('✅ Trouvée !', 'ok');
                     
-                    if (order) {
-                        this.currentOrder = order;
-                        this.showNotification('✅ Commande trouvée !', 'success');
+                    // ecoute les changements
+                    watchOrder(id);
+                } else {
+                    order = null;
+                    showMsg('❌ Pas trouvée', 'err');
+                }
+            } catch (e) {
+                showMsg('❌ Erreur', 'err');
+                console.error(e);
+            }
+            
+            isLoading = false;
+            render();
+        }
+
+        function watchOrder(id) {
+            if (listener) {
+                db.ref('orders/' + id).off('value', listener);
+            }
+
+            listener = db.ref('orders/' + id).on('value', (snap) => {
+                const newData = snap.val();
+                
+                if (newData && order) {
+                    if (newData.status !== order.status) {
+                        showMsg('🔄 Mis à jour !', 'ok');
+                        order = newData;
+                        render();
                         
-                        // 🔥 Écoute les changements en temps réel
-                        this.listenToOrderChanges(orderId);
+                        // scroll vers status actuel
+                        setTimeout(() => {
+                            const active = document.querySelector('.pulse-icon');
+                            if (active) active.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        }, 100);
                     } else {
-                        this.currentOrder = null;
-                        this.showNotification('❌ Numéro de commande introuvable', 'error');
+                        order = newData;
+                        render();
                     }
-                } catch (error) {
-                    this.showNotification('❌ Erreur lors de la recherche', 'error');
-                    console.error(error);
                 }
+            });
+        }
+
+        function getIdx(status) {
+            return steps.findIndex(s => s.id === status);
+        }
+
+        function renderTracking() {
+            if (!order) return '';
+            
+            const idx = getIdx(order.status);
+            
+            let html = '';
+            steps.forEach((step, i) => {
+                const active = i <= idx;
+                const current = i === idx;
                 
-                this.loading = false;
-                this.render();
-            }
+                html += `
+                    <div class="relative fade-in" style="animation-delay: ${i * 0.1}s">
+                        ${i < steps.length - 1 ? `
+                            <div class="absolute left-8 top-20 w-0.5 h-20" 
+                                 style="background: ${i < idx ? step.color : '#e5e7eb'}"></div>
+                        ` : ''}
+                        <div class="flex items-start gap-6">
+                            <div class="${current ? 'pulse-icon' : ''} w-16 h-16 rounded-full flex items-center justify-center text-3xl shadow-lg"
+                                 style="background: ${active ? step.color : '#e5e7eb'}; color: white;">
+                                ${step.emoji}
+                            </div>
+                            <div class="flex-1 pt-3">
+                                <h3 class="font-bold text-xl" style="color: ${active ? '#1f2937' : '#9ca3af'}">
+                                    ${step.name}
+                                </h3>
+                                ${current ? `
+                                    <div class="flex items-center gap-2 mt-2">
+                                        <div class="w-2 h-2 rounded-full animate-pulse" style="background: ${step.color}"></div>
+                                        <p class="text-sm font-semibold" style="color: ${step.color}">En cours</p>
+                                    </div>
+                                ` : ''}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
 
-            listenToOrderChanges(orderId) {
-                // Arrête l'écoute précédente si elle existe
-                if (this.orderListener) {
-                    database.ref('orders/' + orderId).off('value', this.orderListener);
-                }
-
-                // Écoute les changements en temps réel
-                this.orderListener = database.ref('orders/' + orderId).on('value', (snapshot) => {
-                    const updatedOrder = snapshot.val();
+            return `
+                <div class="mt-8 fade-in">
+                    <div class="text-center p-8 rounded-2xl mb-8" 
+                         style="background: ${steps[idx].color}20; border: 2px solid ${steps[idx].color}30;">
+                        <div class="text-5xl mb-4">📦</div>
+                        <h2 class="text-3xl font-bold text-gray-800 mb-3">Commande ${order.id}</h2>
+                        <p class="text-xl text-gray-700 font-medium">${order.customerName}</p>
+                        <p class="text-sm text-gray-500 mt-2">${order.customerEmail}</p>
+                    </div>
                     
-                    if (updatedOrder && this.currentOrder) {
-                        // Vérifie si le statut a changé
-                        if (updatedOrder.status !== this.currentOrder.status) {
-                            this.showNotification('🔄 Statut mis à jour !', 'success');
-                            
-                            // Animation de mise à jour
-                            const oldStatus = this.currentOrder.status;
-                            this.currentOrder = updatedOrder;
-                            this.render();
-                            
-                            // Scroll vers le nouveau statut
-                            setTimeout(() => {
-                                const activeStatus = document.querySelector('.status-icon.active');
-                                if (activeStatus) {
-                                    activeStatus.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                                }
-                            }, 100);
-                        } else {
-                            // Mise à jour silencieuse des autres infos
-                            this.currentOrder = updatedOrder;
-                            this.render();
-                        }
-                    }
-                });
-            }
+                    <div class="space-y-8 mb-8">${html}</div>
+                    
+                    <div class="text-center p-4 rounded-xl" style="backdrop-filter: blur(10px); background: rgba(255,255,255,0.1);">
+                        <p class="text-sm text-white">
+                            📅 Mis à jour : ${new Date(order.updatedAt).toLocaleString('fr-FR')}
+                        </p>
+                    </div>
+                </div>
+            `;
+        }
 
-            stopListening() {
-                if (this.orderListener && this.currentOrder) {
-                    database.ref('orders/' + this.currentOrder.id).off('value', this.orderListener);
-                    this.orderListener = null;
-                }
-            }
+        function render() {
+            document.getElementById('app').innerHTML = `
+                <div class="min-h-screen p-4 py-12">
+                    <div class="max-w-4xl mx-auto">
+                        <!-- logo -->
+                        <div class="text-center mb-8 fade-in">
+                            <div style="background: white; padding: 20px; border-radius: 20px; box-shadow: 0 10px 40px rgba(0,0,0,0.1); display: inline-block;">
+                                <svg viewBox="0 0 400 150" style="width: 150px; height: auto;">
+                                    <path d="M 50 75 A 40 40 0 1 1 50 74.9" fill="none" stroke="#E63946" stroke-width="20" stroke-linecap="round"/>
+                                    <text x="70" y="95" font-size="80" font-weight="bold" fill="#E63946" font-family="Arial">G</text>
+                                    <path d="M 150 40 A 35 35 0 1 1 150 39.9" fill="none" stroke="#457B9D" stroke-width="18" stroke-linecap="round"/>
+                                    <text x="40" y="140" font-size="40" font-weight="bold" fill="#2B2D42" font-family="Arial">Postal</text>
+                                </svg>
+                            </div>
+                        </div>
 
-            showNotification(message, type) {
-                const colors = {
-                    success: 'bg-green-500',
-                    error: 'bg-red-500',
-                    warning: 'bg-orange-500'
+                        <!-- main card -->
+                        <div class="rounded-3xl shadow-2xl p-8 md:p-12 fade-in" 
+                             style="backdrop-filter: blur(10px); background: rgba(255,255,255,0.95);">
+                            <div class="text-center mb-10">
+                                <h1 class="text-4xl md:text-5xl font-bold text-gray-800 mb-3">
+                                    Suivez votre colis
+                                </h1>
+                                <p class="text-lg text-gray-600">
+                                    Entrez votre numéro de suivi
+                                </p>
+                            </div>
+
+                            <!-- search -->
+                            <div class="mb-10">
+                                <label class="block text-sm font-bold text-gray-700 mb-3 uppercase">
+                                    Numéro de commande
+                                </label>
+                                <div class="flex gap-3">
+                                    <input 
+                                        type="text" 
+                                        id="inp" 
+                                        placeholder="CMD1734567890123"
+                                        class="flex-1 px-6 py-4 border-2 border-gray-300 rounded-xl text-lg"
+                                        value="${trackNum}"
+                                        ${isLoading ? 'disabled' : ''}>
+                                    <button 
+                                        id="btn"
+                                        style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);"
+                                        class="px-8 py-4 text-white rounded-xl font-bold text-lg shadow-lg ${isLoading ? 'opacity-50' : ''}"
+                                        ${isLoading ? 'disabled' : ''}>
+                                        ${isLoading ? '⏳ ...' : '🔍 Suivre'}
+                                    </button>
+                                </div>
+                                <p class="text-xs text-gray-500 mt-3">
+                                    💡 Le numéro vous a été envoyé par email
+                                    ${order ? '<span class="ml-4 text-green-600 font-semibold">🔄 Live</span>' : ''}
+                                </p>
+                            </div>
+
+                            <!-- result -->
+                            ${order ? renderTracking() : `
+                                <div class="text-center py-16 fade-in">
+                                    <div class="w-32 h-32 mx-auto mb-6 rounded-full flex items-center justify-center" 
+                                         style="backdrop-filter: blur(10px); background: rgba(255,255,255,0.1);">
+                                        <span class="text-6xl">📦</span>
+                                    </div>
+                                    <p class="text-xl text-gray-600">
+                                        Entrez votre numéro pour commencer
+                                    </p>
+                                </div>
+                            `}
+                        </div>
+                        
+                        <!-- footer -->
+                        <div class="text-center mt-8 fade-in">
+                            <div class="rounded-2xl p-6" style="backdrop-filter: blur(10px); background: rgba(255,255,255,0.1);">
+                                <p class="text-white font-medium mb-2">Besoin d'aide ?</p>
+                                <p class="text-sm text-white opacity-80">Contactez notre service</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // events
+            const inp = document.getElementById('inp');
+            const btn = document.getElementById('btn');
+
+            if (inp && btn) {
+                inp.oninput = (e) => trackNum = e.target.value;
+                
+                inp.onkeypress = (e) => {
+                    if (e.key === 'Enter' && !isLoading) search();
                 };
-                
-                const notification = document.createElement('div');
-                notification.className = `fixed top-4 right-4 ${colors[type]} text-white px-6 py-3 rounded-lg shadow-lg z-50 fade-in-up`;
-                notification.textContent = message;
-                document.body.appendChild(notification);
-                
-                setTimeout(() => notification.remove(), 3000);
-            }
 
-            getStatusIndex(status) {
-                return this.statuses.findIndex(s => s.key === status);
-            }
+                btn.onclick = () => {
+                    if (!isLoading) search();
+                };
 
-            renderOrderTracking() {
-                if (!this.currentOrder) return '';
-                
-                const currentIndex = this.getStatusIndex(this.currentOrder.status);
-                
-                const steps = this.statuses.map((status, index) => {
-                    const isActive = index <= currentIndex;
-                    const isCurrent = index === currentIndex;
-                    
-                    return `
-                        <div class="relative fade-in-up" style="animation-delay: ${index * 0.1}s">
-                            ${index < this.statuses.length - 1 ? `
-                                <div class="absolute left-8 top-20 w-0.5 h-20 transition-all duration-500" 
-                                     style="background: ${index < currentIndex ? status.color : '#e5e7eb'}"></div>
-                            ` : ''}
-                            <div class="flex items-start gap-6">
-                                <div class="status-icon ${isCurrent ? 'active' : ''} w-16 h-16 rounded-full flex items-center justify-center transition-all duration-300 text-3xl shadow-lg"
-                                     style="background: ${isActive ? status.color : '#e5e7eb'}; color: white;">
-                                    ${status.icon}
-                                </div>
-                                <div class="flex-1 pt-3">
-                                    <h3 class="font-bold text-xl mb-1" style="color: ${isActive ? '#1f2937' : '#9ca3af'}">
-                                        ${status.label}
-                                    </h3>
-                                    ${isCurrent ? `
-                                        <div class="flex items-center gap-2 mt-2">
-                                            <div class="w-2 h-2 rounded-full animate-pulse" style="background: ${status.color}"></div>
-                                            <p class="text-sm font-semibold" style="color: ${status.color}">En cours</p>
-                                        </div>
-                                    ` : ''}
-                                    ${isActive && !isCurrent ? `
-                                        <p class="text-sm text-gray-500 mt-1">✓ Terminé</p>
-                                    ` : ''}
-                                </div>
-                            </div>
-                        </div>
-                    `;
-                }).join('');
-
-                return `
-                    <div class="mt-8 fade-in-up">
-                        <div class="text-center p-8 rounded-2xl mb-8" 
-                             style="background: linear-gradient(135deg, ${this.statuses[currentIndex].color}20 0%, ${this.statuses[currentIndex].color}10 100%); border: 2px solid ${this.statuses[currentIndex].color}30;">
-                            <div class="text-5xl mb-4">📦</div>
-                            <h2 class="text-3xl font-bold text-gray-800 mb-3">Commande ${this.currentOrder.id}</h2>
-                            <p class="text-xl text-gray-700 font-medium">${this.currentOrder.customerName}</p>
-                            <p class="text-sm text-gray-500 mt-2">${this.currentOrder.customerEmail}</p>
-                        </div>
-                        
-                        <div class="space-y-8 mb-8">${steps}</div>
-                        
-                        <div class="text-center p-4 rounded-xl glass-effect">
-                            <p class="text-sm text-white">
-                                📅 Dernière mise à jour : ${new Date(this.currentOrder.updatedAt).toLocaleString('fr-FR')}
-                            </p>
-                        </div>
-                    </div>
-                `;
-            }
-
-            render() {
-                const app = document.getElementById('app');
-                
-                app.innerHTML = `
-                    <div class="min-h-screen p-4 py-12">
-                        <div class="max-w-4xl mx-auto">
-                            <!-- Logo -->
-                            <div class="text-center mb-8 fade-in-up">
-                                <div class="logo-container inline-block">
-                                    <svg viewBox="0 0 400 150" class="logo-image">
-                                        <!-- C rouge -->
-                                        <path d="M 50 75 A 40 40 0 1 1 50 74.9" fill="none" stroke="#E63946" stroke-width="20" stroke-linecap="round"/>
-                                        <!-- G -->
-                                        <text x="70" y="95" font-size="80" font-weight="bold" fill="#E63946" font-family="Arial, sans-serif">G</text>
-                                        <!-- P bleu -->
-                                        <path d="M 150 40 A 35 35 0 1 1 150 39.9" fill="none" stroke="#457B9D" stroke-width="18" stroke-linecap="round"/>
-                                        <!-- Postal -->
-                                        <text x="40" y="140" font-size="40" font-weight="bold" fill="#2B2D42" font-family="Arial, sans-serif">Postal</text>
-                                    </svg>
-                                </div>
-                            </div>
-
-                            <!-- Card principale -->
-                            <div class="tracking-card rounded-3xl shadow-2xl p-8 md:p-12 fade-in-up">
-                                <div class="text-center mb-10">
-                                    <h1 class="text-4xl md:text-5xl font-bold text-gray-800 mb-3">
-                                        Suivez votre colis
-                                    </h1>
-                                    <p class="text-lg text-gray-600">
-                                        Entrez votre numéro de suivi pour voir où se trouve votre commande
-                                    </p>
-                                </div>
-
-                                <!-- Barre de recherche -->
-                                <div class="mb-10">
-                                    <label class="block text-sm font-bold text-gray-700 mb-3 uppercase tracking-wide">
-                                        Numéro de commande
-                                    </label>
-                                    <div class="flex gap-3">
-                                        <input 
-                                            type="text" 
-                                            id="trackingInput" 
-                                            placeholder="CMD1734567890123"
-                                            class="flex-1 px-6 py-4 border-2 border-gray-300 rounded-xl text-lg font-medium transition-all"
-                                            value="${this.trackingNumber}"
-                                            ${this.loading ? 'disabled' : ''}>
-                                        <button 
-                                            id="btnTrack"
-                                            class="btn-track px-8 py-4 text-white rounded-xl font-bold text-lg shadow-lg ${this.loading ? 'opacity-50 cursor-not-allowed' : ''}"
-                                            ${this.loading ? 'disabled' : ''}>
-                                            ${this.loading ? '⏳ Recherche...' : '🔍 Suivre'}
-                                        </button>
-                                    </div>
-                                    <p class="text-xs text-gray-500 mt-3 flex items-center gap-2">
-                                        💡 <span>Le numéro de suivi vous a été envoyé par email</span>
-                                        ${this.currentOrder ? '<span class="ml-4 text-green-600 font-semibold">🔄 Mise à jour en temps réel activée</span>' : ''}
-                                    </p>
-                                </div>
-
-                                <!-- Résultat du suivi -->
-                                ${this.currentOrder ? this.renderOrderTracking() : `
-                                    <div class="text-center py-16 fade-in-up">
-                                        <div class="w-32 h-32 mx-auto mb-6 rounded-full flex items-center justify-center glass-effect">
-                                            <span class="text-6xl">📦</span>
-                                        </div>
-                                        <p class="text-xl text-gray-600 font-medium">
-                                            Entrez votre numéro de commande pour commencer
-                                        </p>
-                                    </div>
-                                `}
-                            </div>
-                            
-                            <!-- Footer -->
-                            <div class="text-center mt-8 fade-in-up">
-                                <div class="glass-effect rounded-2xl p-6">
-                                    <p class="text-white font-medium mb-2">Besoin d'aide ?</p>
-                                    <p class="text-sm text-white opacity-80">Contactez notre service client</p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                `;
-
-                const trackInput = document.getElementById('trackingInput');
-                const btnTrack = document.getElementById('btnTrack');
-
-                if (trackInput && btnTrack) {
-                    trackInput.addEventListener('input', (e) => {
-                        this.trackingNumber = e.target.value;
-                    });
-
-                    trackInput.addEventListener('keypress', (e) => {
-                        if (e.key === 'Enter' && !this.loading) {
-                            this.trackOrder();
-                        }
-                    });
-
-                    btnTrack.onclick = () => {
-                        if (!this.loading) {
-                            this.trackOrder();
-                        }
-                    };
-
-                    // Focus automatique sur l'input
-                    if (!this.currentOrder) {
-                        trackInput.focus();
-                    }
-                }
+                if (!order) inp.focus();
             }
         }
 
-        const app = new TrackingApp();
+        // go
+        render();
     </script>
 </body>
 </html>
