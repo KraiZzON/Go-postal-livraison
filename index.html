@@ -136,6 +136,7 @@
                 this.trackingNumber = '';
                 this.currentOrder = null;
                 this.loading = false;
+                this.orderListener = null;
                 
                 this.statuses = [
                     { key: 'received', label: 'Commande reçue', icon: '📋', color: '#6366f1', bgColor: '#eef2ff' },
@@ -165,6 +166,9 @@
                     if (order) {
                         this.currentOrder = order;
                         this.showNotification('✅ Commande trouvée !', 'success');
+                        
+                        // 🔥 Écoute les changements en temps réel
+                        this.listenToOrderChanges(orderId);
                     } else {
                         this.currentOrder = null;
                         this.showNotification('❌ Numéro de commande introuvable', 'error');
@@ -176,6 +180,49 @@
                 
                 this.loading = false;
                 this.render();
+            }
+
+            listenToOrderChanges(orderId) {
+                // Arrête l'écoute précédente si elle existe
+                if (this.orderListener) {
+                    database.ref('orders/' + orderId).off('value', this.orderListener);
+                }
+
+                // Écoute les changements en temps réel
+                this.orderListener = database.ref('orders/' + orderId).on('value', (snapshot) => {
+                    const updatedOrder = snapshot.val();
+                    
+                    if (updatedOrder && this.currentOrder) {
+                        // Vérifie si le statut a changé
+                        if (updatedOrder.status !== this.currentOrder.status) {
+                            this.showNotification('🔄 Statut mis à jour !', 'success');
+                            
+                            // Animation de mise à jour
+                            const oldStatus = this.currentOrder.status;
+                            this.currentOrder = updatedOrder;
+                            this.render();
+                            
+                            // Scroll vers le nouveau statut
+                            setTimeout(() => {
+                                const activeStatus = document.querySelector('.status-icon.active');
+                                if (activeStatus) {
+                                    activeStatus.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                }
+                            }, 100);
+                        } else {
+                            // Mise à jour silencieuse des autres infos
+                            this.currentOrder = updatedOrder;
+                            this.render();
+                        }
+                    }
+                });
+            }
+
+            stopListening() {
+                if (this.orderListener && this.currentOrder) {
+                    database.ref('orders/' + this.currentOrder.id).off('value', this.orderListener);
+                    this.orderListener = null;
+                }
             }
 
             showNotification(message, type) {
@@ -312,6 +359,7 @@
                                     </div>
                                     <p class="text-xs text-gray-500 mt-3 flex items-center gap-2">
                                         💡 <span>Le numéro de suivi vous a été envoyé par email</span>
+                                        ${this.currentOrder ? '<span class="ml-4 text-green-600 font-semibold">🔄 Mise à jour en temps réel activée</span>' : ''}
                                     </p>
                                 </div>
 
