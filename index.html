@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Suivi de Commande</title>
+    <title>Go Postal - Suivi de Livraison</title>
     <script src="https://cdn.tailwindcss.com"></script>
     
     <!-- Firebase -->
@@ -12,10 +12,95 @@
     
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: system-ui, -apple-system, sans-serif; }
+        body { 
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        
+        .animated-bg {
+            background: linear-gradient(-45deg, #ee7752, #e73c7e, #23a6d5, #23d5ab);
+            background-size: 400% 400%;
+            animation: gradient 15s ease infinite;
+        }
+        
+        @keyframes gradient {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+        
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+        
+        .fade-in-up {
+            animation: fadeInUp 0.6s ease-out;
+        }
+        
+        .logo-container {
+            background: white;
+            padding: 20px;
+            border-radius: 20px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+            display: inline-block;
+            margin-bottom: 30px;
+        }
+        
+        .tracking-card {
+            backdrop-filter: blur(10px);
+            background: rgba(255, 255, 255, 0.95);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+        
+        .status-icon {
+            transition: all 0.3s ease;
+        }
+        
+        .status-icon.active {
+            animation: pulse 2s infinite;
+        }
+        
+        .glass-effect {
+            backdrop-filter: blur(10px);
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        input:focus {
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.3);
+        }
+        
+        .btn-track {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            transition: all 0.3s ease;
+        }
+        
+        .btn-track:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(102, 126, 234, 0.4);
+        }
+        
+        .logo-image {
+            width: 150px;
+            height: auto;
+        }
     </style>
 </head>
-<body>
+<body class="animated-bg">
     <div id="app"></div>
 
     <script>
@@ -33,16 +118,30 @@
         firebase.initializeApp(firebaseConfig);
         const database = firebase.database();
 
+        // Logo Go Postal en SVG
+        const goPostalLogo = `
+            <svg viewBox="0 0 300 300" class="logo-image">
+                <!-- C rouge -->
+                <path d="M 40 150 A 60 60 0 1 1 40 149.9" fill="none" stroke="#E63946" stroke-width="30"/>
+                <!-- G rouge -->
+                <rect x="130" y="170" width="50" height="30" fill="#E63946"/>
+                <!-- P bleu -->
+                <path d="M 160 90 A 50 50 0 1 1 160 89.9" fill="none" stroke="#457B9D" stroke-width="25"/>
+                <text x="50" y="280" font-size="60" font-weight="bold" fill="#2B2D42" font-family="Arial">Postal</text>
+            </svg>
+        `;
+
         class TrackingApp {
             constructor() {
                 this.trackingNumber = '';
                 this.currentOrder = null;
+                this.loading = false;
                 
                 this.statuses = [
-                    { key: 'received', label: 'Commande reçue', icon: '⏰', color: 'gray' },
-                    { key: 'preparing', label: 'En préparation', icon: '📦', color: 'blue' },
-                    { key: 'delivering', label: 'En cours de livraison', icon: '🚚', color: 'orange' },
-                    { key: 'delivered', label: 'Livrée', icon: '✅', color: 'green' }
+                    { key: 'received', label: 'Commande reçue', icon: '📋', color: '#6366f1', bgColor: '#eef2ff' },
+                    { key: 'preparing', label: 'En préparation', icon: '📦', color: '#3b82f6', bgColor: '#dbeafe' },
+                    { key: 'delivering', label: 'En cours de livraison', icon: '🚚', color: '#f59e0b', bgColor: '#fef3c7' },
+                    { key: 'delivered', label: 'Livrée', icon: '✅', color: '#10b981', bgColor: '#d1fae5' }
                 ];
                 
                 this.render();
@@ -52,9 +151,12 @@
                 const orderId = this.trackingNumber.trim();
                 
                 if (!orderId) {
-                    alert('⚠️ Veuillez entrer un numéro de commande');
+                    this.showNotification('⚠️ Veuillez entrer un numéro de commande', 'warning');
                     return;
                 }
+
+                this.loading = true;
+                this.render();
 
                 try {
                     const snapshot = await database.ref('orders/' + orderId).once('value');
@@ -62,16 +164,33 @@
                     
                     if (order) {
                         this.currentOrder = order;
-                        this.render();
+                        this.showNotification('✅ Commande trouvée !', 'success');
                     } else {
-                        alert('❌ Numéro de commande introuvable. Vérifiez votre numéro.');
                         this.currentOrder = null;
-                        this.render();
+                        this.showNotification('❌ Numéro de commande introuvable', 'error');
                     }
                 } catch (error) {
-                    alert('❌ Erreur lors de la recherche. Réessayez.');
+                    this.showNotification('❌ Erreur lors de la recherche', 'error');
                     console.error(error);
                 }
+                
+                this.loading = false;
+                this.render();
+            }
+
+            showNotification(message, type) {
+                const colors = {
+                    success: 'bg-green-500',
+                    error: 'bg-red-500',
+                    warning: 'bg-orange-500'
+                };
+                
+                const notification = document.createElement('div');
+                notification.className = `fixed top-4 right-4 ${colors[type]} text-white px-6 py-3 rounded-lg shadow-lg z-50 fade-in-up`;
+                notification.textContent = message;
+                document.body.appendChild(notification);
+                
+                setTimeout(() => notification.remove(), 3000);
             }
 
             getStatusIndex(status) {
@@ -88,21 +207,29 @@
                     const isCurrent = index === currentIndex;
                     
                     return `
-                        <div class="relative">
+                        <div class="relative fade-in-up" style="animation-delay: ${index * 0.1}s">
                             ${index < this.statuses.length - 1 ? `
-                                <div class="absolute left-6 top-14 w-1 h-16 ${index < currentIndex ? 'bg-green-500' : 'bg-gray-200'}"></div>
+                                <div class="absolute left-8 top-20 w-0.5 h-20 transition-all duration-500" 
+                                     style="background: ${index < currentIndex ? status.color : '#e5e7eb'}"></div>
                             ` : ''}
-                            <div class="flex items-start gap-4">
-                                <div class="w-12 h-12 rounded-full flex items-center justify-center transition-all text-2xl
-                                    ${isActive ? 'bg-green-500 text-white shadow-lg scale-110' : 'bg-gray-200'}
-                                    ${isCurrent ? 'ring-4 ring-green-200' : ''}">
+                            <div class="flex items-start gap-6">
+                                <div class="status-icon ${isCurrent ? 'active' : ''} w-16 h-16 rounded-full flex items-center justify-center transition-all duration-300 text-3xl shadow-lg"
+                                     style="background: ${isActive ? status.color : '#e5e7eb'}; color: white;">
                                     ${status.icon}
                                 </div>
-                                <div class="flex-1 pt-2">
-                                    <h3 class="font-semibold text-lg ${isActive ? 'text-gray-800' : 'text-gray-400'}">
+                                <div class="flex-1 pt-3">
+                                    <h3 class="font-bold text-xl mb-1" style="color: ${isActive ? '#1f2937' : '#9ca3af'}">
                                         ${status.label}
                                     </h3>
-                                    ${isCurrent ? '<p class="text-sm text-green-600 font-medium mt-1">📍 Statut actuel</p>' : ''}
+                                    ${isCurrent ? `
+                                        <div class="flex items-center gap-2 mt-2">
+                                            <div class="w-2 h-2 rounded-full animate-pulse" style="background: ${status.color}"></div>
+                                            <p class="text-sm font-semibold" style="color: ${status.color}">En cours</p>
+                                        </div>
+                                    ` : ''}
+                                    ${isActive && !isCurrent ? `
+                                        <p class="text-sm text-gray-500 mt-1">✓ Terminé</p>
+                                    ` : ''}
                                 </div>
                             </div>
                         </div>
@@ -110,15 +237,21 @@
                 }).join('');
 
                 return `
-                    <div class="space-y-8 mt-8 animate-fadeIn">
-                        <div class="text-center bg-green-50 rounded-lg p-6 border-2 border-green-200">
-                            <div class="text-4xl mb-3">📦</div>
-                            <h2 class="text-2xl font-bold text-gray-800 mb-2">Commande ${this.currentOrder.id}</h2>
-                            <p class="text-gray-600 font-medium">${this.currentOrder.customerName}</p>
+                    <div class="mt-8 fade-in-up">
+                        <div class="text-center p-8 rounded-2xl mb-8" 
+                             style="background: linear-gradient(135deg, ${this.statuses[currentIndex].color}20 0%, ${this.statuses[currentIndex].color}10 100%); border: 2px solid ${this.statuses[currentIndex].color}30;">
+                            <div class="text-5xl mb-4">📦</div>
+                            <h2 class="text-3xl font-bold text-gray-800 mb-3">Commande ${this.currentOrder.id}</h2>
+                            <p class="text-xl text-gray-700 font-medium">${this.currentOrder.customerName}</p>
+                            <p class="text-sm text-gray-500 mt-2">${this.currentOrder.customerEmail}</p>
                         </div>
-                        <div class="space-y-6">${steps}</div>
-                        <div class="text-center text-sm text-gray-500 pt-4 border-t">
-                            📅 Dernière mise à jour : ${new Date(this.currentOrder.updatedAt).toLocaleString('fr-FR')}
+                        
+                        <div class="space-y-8 mb-8">${steps}</div>
+                        
+                        <div class="text-center p-4 rounded-xl glass-effect">
+                            <p class="text-sm text-white">
+                                📅 Dernière mise à jour : ${new Date(this.currentOrder.updatedAt).toLocaleString('fr-FR')}
+                            </p>
                         </div>
                     </div>
                 `;
@@ -128,56 +261,82 @@
                 const app = document.getElementById('app');
                 
                 app.innerHTML = `
-                    <div class="min-h-screen bg-gradient-to-br from-green-50 to-teal-100 p-4">
-                        <div class="max-w-3xl mx-auto py-8">
-                            <div class="bg-white rounded-2xl shadow-2xl p-8">
-                                <div class="text-center mb-8">
-                                    <div class="text-6xl mb-4">🚚</div>
-                                    <h1 class="text-4xl font-bold text-gray-800 mb-2">Suivi de Commande</h1>
-                                    <p class="text-gray-600">Entrez votre numéro pour suivre votre livraison</p>
+                    <div class="min-h-screen p-4 py-12">
+                        <div class="max-w-4xl mx-auto">
+                            <!-- Logo -->
+                            <div class="text-center mb-8 fade-in-up">
+                                <div class="logo-container inline-block">
+                                    <svg viewBox="0 0 400 150" class="logo-image">
+                                        <!-- C rouge -->
+                                        <path d="M 50 75 A 40 40 0 1 1 50 74.9" fill="none" stroke="#E63946" stroke-width="20" stroke-linecap="round"/>
+                                        <!-- G -->
+                                        <text x="70" y="95" font-size="80" font-weight="bold" fill="#E63946" font-family="Arial, sans-serif">G</text>
+                                        <!-- P bleu -->
+                                        <path d="M 150 40 A 35 35 0 1 1 150 39.9" fill="none" stroke="#457B9D" stroke-width="18" stroke-linecap="round"/>
+                                        <!-- Postal -->
+                                        <text x="40" y="140" font-size="40" font-weight="bold" fill="#2B2D42" font-family="Arial, sans-serif">Postal</text>
+                                    </svg>
                                 </div>
+                            </div>
 
-                                <div class="mb-8">
-                                    <label class="block text-sm font-medium text-gray-700 mb-2">
-                                        Numéro de commande
-                                    </label>
-                                    <div class="flex gap-2">
-                                        <input type="text" id="trackingInput" placeholder="Ex: CMD1734567890123"
-                                            class="flex-1 px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition text-lg"
-                                            value="${this.trackingNumber}">
-                                        <button id="btnTrack"
-                                            class="px-8 py-3 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition shadow-lg hover:shadow-xl text-lg">
-                                            Suivre
-                                        </button>
-                                    </div>
-                                    <p class="text-xs text-gray-500 mt-2">
-                                        💡 Entrez le numéro de commande qui vous a été fourni
+                            <!-- Card principale -->
+                            <div class="tracking-card rounded-3xl shadow-2xl p-8 md:p-12 fade-in-up">
+                                <div class="text-center mb-10">
+                                    <h1 class="text-4xl md:text-5xl font-bold text-gray-800 mb-3">
+                                        Suivez votre colis
+                                    </h1>
+                                    <p class="text-lg text-gray-600">
+                                        Entrez votre numéro de suivi pour voir où se trouve votre commande
                                     </p>
                                 </div>
 
+                                <!-- Barre de recherche -->
+                                <div class="mb-10">
+                                    <label class="block text-sm font-bold text-gray-700 mb-3 uppercase tracking-wide">
+                                        Numéro de commande
+                                    </label>
+                                    <div class="flex gap-3">
+                                        <input 
+                                            type="text" 
+                                            id="trackingInput" 
+                                            placeholder="CMD1734567890123"
+                                            class="flex-1 px-6 py-4 border-2 border-gray-300 rounded-xl text-lg font-medium transition-all"
+                                            value="${this.trackingNumber}"
+                                            ${this.loading ? 'disabled' : ''}>
+                                        <button 
+                                            id="btnTrack"
+                                            class="btn-track px-8 py-4 text-white rounded-xl font-bold text-lg shadow-lg ${this.loading ? 'opacity-50 cursor-not-allowed' : ''}"
+                                            ${this.loading ? 'disabled' : ''}>
+                                            ${this.loading ? '⏳ Recherche...' : '🔍 Suivre'}
+                                        </button>
+                                    </div>
+                                    <p class="text-xs text-gray-500 mt-3 flex items-center gap-2">
+                                        💡 <span>Le numéro de suivi vous a été envoyé par email</span>
+                                    </p>
+                                </div>
+
+                                <!-- Résultat du suivi -->
                                 ${this.currentOrder ? this.renderOrderTracking() : `
-                                    <div class="text-center py-12 text-gray-400">
-                                        <div class="text-6xl mb-4">📋</div>
-                                        <p class="text-lg">Entrez votre numéro de commande ci-dessus</p>
+                                    <div class="text-center py-16 fade-in-up">
+                                        <div class="w-32 h-32 mx-auto mb-6 rounded-full flex items-center justify-center glass-effect">
+                                            <span class="text-6xl">📦</span>
+                                        </div>
+                                        <p class="text-xl text-gray-600 font-medium">
+                                            Entrez votre numéro de commande pour commencer
+                                        </p>
                                     </div>
                                 `}
                             </div>
                             
-                            <div class="text-center mt-6 text-sm text-gray-600">
-                                <p>Besoin d'aide ? Contactez le service client</p>
+                            <!-- Footer -->
+                            <div class="text-center mt-8 fade-in-up">
+                                <div class="glass-effect rounded-2xl p-6">
+                                    <p class="text-white font-medium mb-2">Besoin d'aide ?</p>
+                                    <p class="text-sm text-white opacity-80">Contactez notre service client</p>
+                                </div>
                             </div>
                         </div>
                     </div>
-
-                    <style>
-                        @keyframes fadeIn {
-                            from { opacity: 0; transform: translateY(20px); }
-                            to { opacity: 1; transform: translateY(0); }
-                        }
-                        .animate-fadeIn {
-                            animation: fadeIn 0.5s ease-out;
-                        }
-                    </style>
                 `;
 
                 const trackInput = document.getElementById('trackingInput');
@@ -189,14 +348,21 @@
                     });
 
                     trackInput.addEventListener('keypress', (e) => {
-                        if (e.key === 'Enter') {
+                        if (e.key === 'Enter' && !this.loading) {
                             this.trackOrder();
                         }
                     });
 
                     btnTrack.onclick = () => {
-                        this.trackOrder();
+                        if (!this.loading) {
+                            this.trackOrder();
+                        }
                     };
+
+                    // Focus automatique sur l'input
+                    if (!this.currentOrder) {
+                        trackInput.focus();
+                    }
                 }
             }
         }
